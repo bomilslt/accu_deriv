@@ -154,6 +154,7 @@ class AccumulatorBot:
         self.losses = 0
         self.total_profit = 0.0
         self.consecutive_buy_errors = 0
+        self._last_no_rate_warning = 0.0
 
     # ------------------------------------------------------------------ #
     # Couche REST (nouvelle API)                                         #
@@ -496,7 +497,8 @@ class AccumulatorBot:
         self.entry_time = time.time()
         self.tick_count = 0
 
-        logger.info(f"✅ CONTRAT ACHETÉ - ID: {self.contract_id}, Prix: ${self.purchase_price:.2f}")
+        logger.info(f"✅ CONTRAT ACHETÉ - ID: {self.contract_id}, "
+                    f"Taux: {growth_rate*100:.0f}%, Prix: ${self.purchase_price:.2f}")
         return True
 
     async def sell_contract(self, reason: str):
@@ -584,10 +586,16 @@ class AccumulatorBot:
 
         for rate, barrier in sorted_rates:
             if barrier > safety_threshold:
-                logger.info(f"Taux sélectionné: {rate*100:.1f}% (Barrière: {barrier*100:.5f}%)")
+                logger.debug(f"Taux sélectionné: {rate*100:.1f}% (Barrière: {barrier*100:.5f}%)")
                 return rate, barrier
 
-        logger.warning("Aucun taux sûr disponible - Volatilité trop élevée")
+        # Message par-tick -> DEBUG; rappel WARNING au plus toutes les 60 s
+        logger.debug("Aucun taux sûr - Volatilité trop élevée")
+        now = time.time()
+        if now - self._last_no_rate_warning > 60:
+            logger.warning("Volatilité trop élevée: aucun taux sûr disponible "
+                           "(rappel au plus toutes les 60 s)")
+            self._last_no_rate_warning = now
         return None
 
     async def check_knockout(self) -> bool:
@@ -650,7 +658,8 @@ class AccumulatorBot:
         threshold = recent_vol * config.ABNORMAL_MOVE_THRESHOLD
 
         if last_change > threshold:
-            logger.warning(f"⚠️ MOUVEMENT ANORMAL détecté: {last_change*100:.5f}% (Seuil: {threshold*100:.5f}%)")
+            # Détail en DEBUG: la raison figure déjà dans la ligne SORTIE (INFO)
+            logger.debug(f"Mouvement anormal: {last_change*100:.5f}% (Seuil: {threshold*100:.5f}%)")
             return True
 
         return False
