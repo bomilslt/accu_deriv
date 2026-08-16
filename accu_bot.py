@@ -30,6 +30,11 @@ def setup_logger(debug_mode: bool, log_file: str) -> logging.Logger:
     logger = logging.getLogger("AccuBot")
     logger.setLevel(logging.DEBUG if debug_mode else logging.INFO)
     
+    # Support des émojis sur Windows
+    if sys.platform == 'win32':
+        import codecs
+        sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer)
+
     # Formateur
     formatter = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(message)s',
@@ -43,7 +48,7 @@ def setup_logger(debug_mode: bool, log_file: str) -> logging.Logger:
     logger.addHandler(console_handler)
     
     # Handler Fichier (toujours activé pour traçabilité VPS)
-    file_handler = logging.FileHandler(log_file)
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
     logger.addHandler(file_handler)
