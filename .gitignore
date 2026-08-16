@@ -1,1 +1,6 @@
-(according to rule 6, since only a source file 'accu_bot.py' was modified and there are no build artifacts, dependencies, or temp files in the changes, the output should be empty)
+*.log
+.env
+__pycache__/
+venv/
+bot.lock
+test*

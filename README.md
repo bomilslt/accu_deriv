@@ -15,7 +15,8 @@ Ce bot implémente une logique de trading conservative basée sur :
 
 - Python 3.8+
 - Compte Deriv (gratuit sur [deriv.com](https://deriv.com))
-- Token API (à générer dans votre compte)
+- Une application enregistrée sur [developers.deriv.com](https://developers.deriv.com) (donne un **App ID alphanumérique**)
+- Un **Personal Access Token** au format `pat_...` (généré depuis votre compte Deriv, avec les droits lecture + trading)
 
 ## 🚀 Installation
 
@@ -26,24 +27,47 @@ pip install websocket-client python-dotenv
 # Copier le fichier d'exemple et configurer vos identifiants
 cp .env.example .env
 
-# Éditer .env et ajouter votre token Deriv
+# Éditer .env : ajouter votre App ID et votre token pat_...
 nano .env
 ```
 
+> ⚠️ **Important (nouvelle API Deriv)** : le token `pat_...` n'est affiché
+> **qu'une seule fois** à sa création. Copiez-le **entièrement** immédiatement.
+> Un token tronqué (ou l'ancien format `a1-...`) sera refusé.
+> Sans token, le bot démarre en mode observation (WebSocket public, trades simulés).
+
+## 🔐 Authentification (nouvelle API 2026)
+
+Le bot utilise la nouvelle API Deriv :
+
+1. **REST** `GET https://api.derivws.com/trading/v1/options/accounts` avec les headers
+   `Authorization: Bearer pat_...` et `Deriv-App-ID: <votre app id>` (liste des comptes)
+2. **REST** `POST .../accounts/{accountId}/otp` → renvoie une URL WebSocket à usage unique
+3. **WebSocket** : connexion à cette URL (l'OTP fait office d'authentification), puis
+   messages au format habituel (`ticks`, `buy` avec `contract_type: ACCU`, `sell`, `ping`)
+
+Les anciens identifiants (App ID numérique + token `a1-...` de l'API v3
+`ws.binaryws.com`) ne sont plus utilisables.
+
 ## ⚙️ Configuration
 
-Éditez `config.py` pour ajuster les paramètres :
+Les paramètres de trading (compte, marché, mise) se définissent dans le `.env` :
+
+```ini
+DERIV_ACCOUNT_TYPE=demo  # "demo" ou "real"
+DERIV_SYMBOL=R_100       # marché (R_10, R_25, R_50, R_75, R_100...)
+DERIV_STAKE=10           # mise par trade en USD
+```
+
+Les paramètres de stratégie se règlent dans `config.py` :
 
 ```python
-# Symbole à trader
-SYMBOL = "R_100"  # Volatility 100 (1s)
-
-# Mise initiale
-INITIAL_STAKE = 10.0  # USD
-
 # Paramètres de stratégie
-VOLATILITY_PERIOD = 15  # Nombre de ticks pour calculer la volatilité
+VOLATILITY_PERIOD = 20  # Fenêtre d'analyse de la volatilité (>= 20 recommandé)
 VOLATILITY_MULTIPLIER = 2.5  # Coefficient de sécurité
+
+COOLDOWN_TICKS = 10  # Ticks d'attente après une clôture avant de ré-entrer
+MAX_POSITION_SECONDS = 30  # Vente forcée si la position dure trop (ticks bloqués)
 
 TARGET_TICKS_MIN = 4  # Sortie min après 4 ticks
 TARGET_TICKS_MAX = 5  # Sortie max après 5 ticks
@@ -113,4 +137,4 @@ Vous pouvez modifier :
 
 ## 📞 Support API Deriv
 
-Documentation officielle : https://api.deriv.com/
+Documentation officielle (nouvelle API) : https://developers.deriv.com/
