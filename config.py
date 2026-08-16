@@ -30,7 +30,7 @@ BARRIER_OPTIONS = {
 VOLATILITY_PERIOD = 20 # Fenêtre d'analyse de la volatilité (>= 20 recommandé)
 VOLATILITY_MULTIPLIER = 2.5 # Coefficient de sécurité (K)
 
-COOLDOWN_TICKS = 20 # Ticks d'attente après une clôture avant de ré-entrer
+COOLDOWN_TICKS = 15 # Ticks d'attente après une clôture avant de ré-entrer
 MAX_POSITION_SECONDS = 30 # Garde-fou: vente forcée si la position dure trop (ticks bloqués)
 
 TARGET_TICKS_MIN = 4 # Option B: Sortie automatique après min 4 ticks
