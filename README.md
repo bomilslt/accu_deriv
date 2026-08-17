@@ -74,6 +74,11 @@ TARGET_TICKS_MAX = 5  # Sortie max après 5 ticks
 
 ABNORMAL_MOVE_THRESHOLD = 3.0  # Seuil de détection mouvement anormal
 
+TREND_FILTER_ENABLED = True   # Exiger une micro-tendance avant d'entrer
+TREND_WINDOW = 10             # Fenêtre de ticks analysés
+TREND_DIRECTIONALITY = 0.7    # Fraction de ticks dans la même direction requise
+TREND_MAX_WAIT_TICKS = 0      # 0 = attendre indéfiniment; sinon fallback après X ticks
+
 # Logs
 DEBUG_MODE = True  # True pour tests locaux, False pour VPS
 ```
@@ -107,8 +112,32 @@ Sinon:
     ⚠️ Ne pas trader (trop risqué)
 ```
 
+### Filtre de tendance (condition d'entrée)
+
+Pour ne pas se relancer dans un marché qui oscille dès la fin du cooldown,
+le bot exige en plus une **micro-tendance directionnelle** avant d'acheter :
+il mesure la fraction de ticks haussiers sur les `TREND_WINDOW` derniers ticks
+(10 par défaut).
+
+```
+Fraction de ticks haussiers sur les 10 derniers ticks:
+  >= 70%  -> tendance haussière ✅  (le marché "marche" dans une direction)
+  <= 30%  -> tendance baissière ✅  (les deux conviennent à l'ACCU)
+  sinon   -> marché qui oscille en va-et-vient, on reste hors du marché ⏳
+```
+
+Tant qu'aucune tendance n'est détectée, le bot **n'achète pas** et continue
+d'analyser le marché. Avec `TREND_MAX_WAIT_TICKS = 0` (défaut), il attend
+le signal indéfiniment ; avec une valeur > 0, il reprend le comportement
+actuel (entrée dès qu'un taux est sûr) après ce nombre de ticks d'attente.
+
+Cela évite le problème principal : de racheter "à l'instant T" au premier
+tick sûr par volatilité, sans avoir vérifié que le marché est calme **et**
+directionnel — c'est-à-dire dans le régime où l'ACCU encaisse du gain
+tick après tick au lieu de casser sa barrière.
+
 ### Gestion du trade
-- **Entrée**: Achat automatique quand un taux sûr est détecté
+- **Entrée**: Achat automatique quand un taux sûr est détecté **et** que le marché montre une micro-tendance directionnelle
 - **Sortie normale**: Après 4-5 ticks (Take Profit)
 - **Sortie urgente**: Si mouvement anormal détecté (> 3× la volatilité)
 - **Knock-out**: Perte automatique si le prix touche la barrière

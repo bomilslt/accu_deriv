@@ -22,13 +22,13 @@ BARRIER_OPTIONS = {
     0.01: 0.000612552024, # 1% growth -> ±0.06126%
     0.02: 0.000572524639, # 2% growth -> ±0.05725%
     0.03: 0.000536927765, # 3% growth -> ±0.05369%
-    # 0.04: 0.000510864957, # 4% growth -> ±0.05109%
+    0.04: 0.000510864957, # 4% growth -> ±0.05109%
     # 0.05: 0.000486253948, # 5% growth -> ±0.04863%
 }
 
 # --- Logique de Stratégie ---
 VOLATILITY_PERIOD = 20 # Fenêtre d'analyse de la volatilité (>= 20 recommandé)
-VOLATILITY_MULTIPLIER = 2.5 # Coefficient de sécurité (K)
+VOLATILITY_MULTIPLIER = 3 # Coefficient de sécurité (K)
 
 COOLDOWN_TICKS = 15 # Ticks d'attente après une clôture avant de ré-entrer
 MAX_POSITION_SECONDS = 30 # Garde-fou: vente forcée si la position dure trop (ticks bloqués)
@@ -39,6 +39,16 @@ TARGET_TICKS_MAX = 5 # Option B: Sortie automatique après max 5 ticks (si TP pa
 # Option C: Seuil de mouvement bizarre pour sortie anticipée
 # Si le mouvement du prix actuel dépasse X fois la volatilité moyenne, on coupe
 ABNORMAL_MOVE_THRESHOLD = 3.0 
+
+# --- Filtre de tendance (condition d'entrée) ---
+# Empêche d'acheter "à l'instant T" dès la fin du cooldown: exige que le marché
+# marche régulièrement dans une direction (micro-tendance) avant d'entrer.
+# Un ACCU gagne quand le prix fait des petits pas réguliers (même direction),
+# pas quand il oscille en va-et-vient (risque de casser la barrière).
+TREND_FILTER_ENABLED = True   # Activer le filtre de tendance avant chaque achat
+TREND_WINDOW = 10             # Nb de ticks analysés pour le momentum directionnel
+TREND_DIRECTIONALITY = 0.7    # Fraction de ticks dans une même direction requise (0.5-1.0)
+TREND_MAX_WAIT_TICKS = 0      # 0 = attendre indéfiniment; sinon fallback après X ticks sans signal
 
 # --- Logs ---
 # Mettre à True pour voir tous les détails en local, False pour VPS (seulement erreurs/critiques)

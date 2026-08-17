@@ -156,6 +156,10 @@ class AccumulatorBot:
         self.consecutive_buy_errors = 0
         self._last_no_rate_warning = 0.0
 
+        # Filtre de tendance (compter/limiter l'attente d'un signal)
+        self._trend_wait_ticks = 0          # Ticks passés à chercher un signal sans succès
+        self._last_no_trend_warning = 0.0   # Anti-log-spam: rappel WARNING toutes les 60 s
+
     # ------------------------------------------------------------------ #
     # Couche REST (nouvelle API)                                         #
     # ------------------------------------------------------------------ #
@@ -418,6 +422,7 @@ class AccumulatorBot:
         self.total_trades += 1
         self.total_profit += profit
         self.cooldown_ticks = config.COOLDOWN_TICKS
+        self._trend_wait_ticks = 0  # Après une clôture, re-exiger un signal clair
 
     async def buy_accumulator(self, growth_rate: float, barrier: float):
         """Achat d'un contrat Accumulator (contract_type ACCU sur la nouvelle API)"""
@@ -485,6 +490,7 @@ class AccumulatorBot:
                 self.in_position = False
                 self.contract_id = None
                 self.cooldown_ticks = config.COOLDOWN_TICKS
+                self._trend_wait_ticks = 0
             return False
 
         contract = response.get("buy", {})
@@ -512,6 +518,7 @@ class AccumulatorBot:
             self.total_trades += 1
             self.total_profit += profit
             self.cooldown_ticks = config.COOLDOWN_TICKS
+            self._trend_wait_ticks = 0
             return
 
         # price: 0 = vente au marché (champ obligatoire sur la nouvelle API)
@@ -571,6 +578,35 @@ class AccumulatorBot:
         mean = sum(changes) / len(changes)
         variance = sum((x - mean) ** 2 for x in changes) / len(changes)
         return variance ** 0.5
+
+    def calculate_trend_signal(self) -> Optional[str]:
+        """
+        Filtre de tendance: détecte si le marché "marche régulièrement" dans
+        une direction sur les TREND_WINDOW derniers ticks (micro-tendance).
+        Retourne 'up' / 'down' si la majorité des ticks vont dans le même sens,
+        None si le marché oscille en va-et-vient (chaotique) ou si les données
+        sont insuffisantes.
+
+        Un ACCU gagne quand le prix fait de petits pas réguliers qui restent
+        dans la barrière — pas quand il fait des allers-retours. On ne rentre
+        donc qu'en présence d'une tendance directionnelle claire.
+        """
+        n = config.TREND_WINDOW
+        if n < 1:
+            return None
+        if len(self.tick_history) < n + 1:
+            return None  # Pas assez de données fraîches
+
+        # Fenêtre exacte: n+1 prix -> n variations tick-à-tick
+        window = self.tick_history[-(n + 1):]
+        up_count = sum(1 for i in range(1, len(window)) if window[i] > window[i - 1])
+        ratio = up_count / n
+
+        if ratio >= config.TREND_DIRECTIONALITY:
+            return 'up'
+        if ratio <= 1 - config.TREND_DIRECTIONALITY:
+            return 'down'
+        return None
 
     def select_best_rate(self, volatility: float) -> Optional[Tuple[float, float]]:
         """
@@ -637,6 +673,7 @@ class AccumulatorBot:
             self.total_trades += 1
             self.total_profit -= self.purchase_price
             self.cooldown_ticks = config.COOLDOWN_TICKS
+            self._trend_wait_ticks = 0  # Après un knock-out, re-exiger un signal
             return True
 
         return False
@@ -697,6 +734,35 @@ class AccumulatorBot:
                 logger.debug(f"Cooldown: {self.cooldown_ticks} tick(s) restant(s)")
                 return
 
+            # Filtre de tendance: on n'entre qu'en présence d'une micro-tendance
+            # directionnelle, pour ne pas se relancer dans un marché qui oscille.
+            if config.TREND_FILTER_ENABLED:
+                trend = self.calculate_trend_signal()
+                if trend is None:
+                    self._trend_wait_ticks += 1
+                    max_wait = config.TREND_MAX_WAIT_TICKS
+                    now = time.time()
+                    if 0 < max_wait < self._trend_wait_ticks:
+                        # Fallback: entrée dès qu'un taux est sûr (un seul rappel min)
+                        if now - self._last_no_trend_warning > 60:
+                            logger.warning(f"⏳ Aucun signal de tendance pendant "
+                                           f"{self._trend_wait_ticks} ticks — fallback: entrée "
+                                           "dès qu'un taux est sûr (TREND_MAX_WAIT_TICKS dépassé)")
+                            self._last_no_trend_warning = now
+                    else:
+                        # Pas de tendance: on continue d'étudier le marché au lieu d'acheter
+                        logger.debug("Pas de tendance claire — on attend un signal "
+                                     f"(wait {self._trend_wait_ticks})")
+                        if now - self._last_no_trend_warning > 60:
+                            logger.warning("Marché sans tendance claire: aucune entrée tant "
+                                           "qu'il n'y a pas de mouvement régulier "
+                                           "(rappel au plus toutes les 60 s)")
+                            self._last_no_trend_warning = now
+                        return
+                else:
+                    self._trend_wait_ticks = 0
+                    logger.debug(f"Tendance détectée: {trend} — vérification volatilité")
+
             volatility = self.calculate_volatility()
             selection = self.select_best_rate(volatility)
 
@@ -705,6 +771,7 @@ class AccumulatorBot:
                 bought = await self.buy_accumulator(growth_rate, barrier)
                 if bought:
                     self.consecutive_buy_errors = 0
+                    self._trend_wait_ticks = 0  # Repartir d'un historique d'attente propre
                 else:
                     self.consecutive_buy_errors += 1
                     if self.consecutive_buy_errors >= 5:

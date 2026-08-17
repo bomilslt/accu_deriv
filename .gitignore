@@ -1,6 +1,7 @@
 *.log
 .env
 __pycache__/
+.zcode
 venv/
 bot.lock
 test*
