@@ -79,6 +79,10 @@ TREND_WINDOW = 10             # Fenêtre de ticks analysés
 TREND_DIRECTIONALITY = 0.7    # Fraction de ticks dans la même direction requise
 TREND_MAX_WAIT_TICKS = 0      # 0 = attendre indéfiniment; sinon fallback après X ticks
 
+REOBSERVE_TICKS = 25      # ticks frais à collecter après une clôture avant d'évaluer
+CALM_CONFIRM_TICKS = 5    # ticks consécutifs "calmes" requis (un tick brutal remet à 0)
+CALM_MAX_TICK_MOVE = 0.0  # variat. max par tick jugée "calme" (0 = auto: barrière la plus large)
+
 # Logs
 DEBUG_MODE = True  # True pour tests locaux, False pour VPS
 ```
@@ -136,8 +140,34 @@ tick sûr par volatilité, sans avoir vérifié que le marché est calme **et**
 directionnel — c'est-à-dire dans le régime où l'ACCU encaisse du gain
 tick après tick au lieu de casser sa barrière.
 
+### Ré-observation et confirmation de calme
+
+Après chaque clôture, le bot ne se relance pas au premier tick "sûr".
+Il ré-étudie le marché avant de reconsidérer une entrée :
+
+```
+Clôture d'un trade
+  → Cooldown (COOLDOWN_TICKS, simple pause)
+  → Ré-observation (REOBSERVE_TICKS):
+      attendre au moins ce nombre de ticks FRAIS (post-clôture)
+      pour que la fenêtre de volatilité soit 100% à jour
+  → Confirmation de calme (CALM_CONFIRM_TICKS):
+      N ticks CONSÉCUTIFS "calmes" requis
+        - variation du tick ≤ CALM_MAX_TICK_MOVE
+          (0 = auto: la barrière la plus large = aucun à-coup brutal)
+        - et un taux sûr existe (volatilité dans une fenêtre fraîche)
+      ⚠️ un tick trop brutal remet le compteur à ZÉRO (le marché n'est
+         pas encore stable: on reprend l'étude)
+  → Filtre de tendance (voir ci-dessus)
+  → Entrée
+```
+
+Résultat : après une perte, le bot reste hors du marché **~30 ticks ou plus**
+(~30 s), et ne rentre que si le calme est *réel et soutenu* — pas sur un
+seul instant de volatilité basse.
+
 ### Gestion du trade
-- **Entrée**: Achat automatique quand un taux sûr est détecté **et** que le marché montre une micro-tendance directionnelle
+- **Entrée**: Achat automatique quand le calme est confirmé (ré-observation + N ticks calmes) **et** que le marché montre une micro-tendance directionnelle **et** qu'un taux est sûr par volatilité
 - **Sortie normale**: Après 4-5 ticks (Take Profit)
 - **Sortie urgente**: Si mouvement anormal détecté (> 3× la volatilité)
 - **Knock-out**: Perte automatique si le prix touche la barrière

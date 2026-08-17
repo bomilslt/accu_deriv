@@ -160,6 +160,10 @@ class AccumulatorBot:
         self._trend_wait_ticks = 0          # Ticks passés à chercher un signal sans succès
         self._last_no_trend_warning = 0.0   # Anti-log-spam: rappel WARNING toutes les 60 s
 
+        # Confirmation de calme après une clôture
+        self._fresh_ticks = 0   # Ticks FRAIS collectés depuis la dernière clôture
+        self._calm_streak = 0   # Ticks consécutifs "calmes" (un tick brutal remet à 0)
+
     # ------------------------------------------------------------------ #
     # Couche REST (nouvelle API)                                         #
     # ------------------------------------------------------------------ #
@@ -423,6 +427,8 @@ class AccumulatorBot:
         self.total_profit += profit
         self.cooldown_ticks = config.COOLDOWN_TICKS
         self._trend_wait_ticks = 0  # Après une clôture, re-exiger un signal clair
+        self._fresh_ticks = 0  # Il faut de la donnée fraîche avant de ré-évaluer
+        self._calm_streak = 0  # ... et un calme soutenu reconfirmé
 
     async def buy_accumulator(self, growth_rate: float, barrier: float):
         """Achat d'un contrat Accumulator (contract_type ACCU sur la nouvelle API)"""
@@ -491,6 +497,8 @@ class AccumulatorBot:
                 self.contract_id = None
                 self.cooldown_ticks = config.COOLDOWN_TICKS
                 self._trend_wait_ticks = 0
+                self._fresh_ticks = 0
+                self._calm_streak = 0
             return False
 
         contract = response.get("buy", {})
@@ -519,6 +527,8 @@ class AccumulatorBot:
             self.total_profit += profit
             self.cooldown_ticks = config.COOLDOWN_TICKS
             self._trend_wait_ticks = 0
+            self._fresh_ticks = 0
+            self._calm_streak = 0
             return
 
         # price: 0 = vente au marché (champ obligatoire sur la nouvelle API)
@@ -674,6 +684,8 @@ class AccumulatorBot:
             self.total_profit -= self.purchase_price
             self.cooldown_ticks = config.COOLDOWN_TICKS
             self._trend_wait_ticks = 0  # Après un knock-out, re-exiger un signal
+            self._fresh_ticks = 0
+            self._calm_streak = 0
             return True
 
         return False
@@ -710,6 +722,27 @@ class AccumulatorBot:
         current_value = self.purchase_price * ((1 + self.selected_growth_rate) ** self.tick_count)
         return current_value - self.purchase_price
 
+    def _check_calm(self) -> bool:
+        """
+        Le tick courant est-il "calme" ? Deux conditions:
+          1) le dernier mouvement tick-à-tick reste sous CALM_MAX_TICK_MOVE
+             (par défaut: la barrière la plus large des taux -> aucun à-coup brutal),
+          2) un taux sûr existe avec la volatilité actuelle (fenêtre fraîche).
+        Un tick non calme remet le compteur de confirmation à zéro (on ne se
+        relance pas juste après un à-coup du marché).
+        """
+        if len(self.tick_history) < 2:
+            return False
+        prev = self.tick_history[-2]
+        if prev == 0:
+            return False
+        move = abs(self.tick_history[-1] - prev) / prev
+        calm_max = config.CALM_MAX_TICK_MOVE or max(config.BARRIER_OPTIONS.values())
+        if move > calm_max:
+            return False
+        volatility = self.calculate_volatility()
+        return self.select_best_rate(volatility) is not None
+
     async def process_tick(self, tick_data: dict):
         """Traitement principal à chaque nouveau tick"""
         if self._awaiting_order:
@@ -722,16 +755,40 @@ class AccumulatorBot:
         self.current_price = price
         self.tick_history.append(price)
 
-        # Garder seulement les N derniers ticks
-        if len(self.tick_history) > config.VOLATILITY_PERIOD + 5:
+        # Garder seulement les N derniers ticks (assez pour la fenêtre la plus large)
+        history_cap = max(config.VOLATILITY_PERIOD, config.REOBSERVE_TICKS,
+                          config.TREND_WINDOW) + 5
+        if len(self.tick_history) > history_cap:
             self.tick_history.pop(0)
 
         # Si pas en position, essayer d'entrer
         if not self.in_position:
+            self._fresh_ticks += 1  # Données fraîches récoltées depuis la dernière clôture
+
             # Cooldown après une clôture: attendre des données fraîches
             if self.cooldown_ticks > 0:
                 self.cooldown_ticks -= 1
                 logger.debug(f"Cooldown: {self.cooldown_ticks} tick(s) restant(s)")
+                return
+
+            # Ré-observation: il faut assez de ticks FRAIS pour juger le niveau de
+            # calme (évite de se relancer "à l'instant T" avec des données périmées).
+            if self._fresh_ticks < config.REOBSERVE_TICKS:
+                logger.debug(f"Ré-observation du marché: {self._fresh_ticks}"
+                             f"/{config.REOBSERVE_TICKS} ticks frais")
+                return
+
+            # Confirmation d'un calme SOUTENU dans le temps: un tick trop brutal
+            # remet le compteur à zéro (le marché n'est pas encore stable).
+            calm = self._check_calm()
+            self._calm_streak = (self._calm_streak + 1) if calm else 0
+            if calm:
+                logger.debug(f"Tick calme ({self._calm_streak}"
+                             f"/{config.CALM_CONFIRM_TICKS})")
+            else:
+                logger.debug(f"Tick non calme — compteur remis à zéro "
+                             f"({self._calm_streak}/{config.CALM_CONFIRM_TICKS})")
+            if self._calm_streak < config.CALM_CONFIRM_TICKS:
                 return
 
             # Filtre de tendance: on n'entre qu'en présence d'une micro-tendance
@@ -772,6 +829,8 @@ class AccumulatorBot:
                 if bought:
                     self.consecutive_buy_errors = 0
                     self._trend_wait_ticks = 0  # Repartir d'un historique d'attente propre
+                    self._fresh_ticks = 0
+                    self._calm_streak = 0
                 else:
                     self.consecutive_buy_errors += 1
                     if self.consecutive_buy_errors >= 5:
