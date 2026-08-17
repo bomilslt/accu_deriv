@@ -27,7 +27,7 @@ BARRIER_OPTIONS = {
 }
 
 # --- Logique de Stratégie ---
-VOLATILITY_PERIOD = 20 # Fenêtre d'analyse de la volatilité (>= 20 recommandé)
+VOLATILITY_PERIOD = 25 # Fenêtre d'analyse de la volatilité (>= 20 recommandé)
 VOLATILITY_MULTIPLIER = 3 # Coefficient de sécurité (K)
 
 COOLDOWN_TICKS = 15 # Ticks d'attente après une clôture avant de ré-entrer
@@ -38,7 +38,7 @@ TARGET_TICKS_MAX = 5 # Option B: Sortie automatique après max 5 ticks (si TP pa
 
 # Option C: Seuil de mouvement bizarre pour sortie anticipée
 # Si le mouvement du prix actuel dépasse X fois la volatilité moyenne, on coupe
-ABNORMAL_MOVE_THRESHOLD = 3.0 
+ABNORMAL_MOVE_THRESHOLD = 2.0 
 
 # --- Filtre de tendance (condition d'entrée) ---
 # Empêche d'acheter "à l'instant T" dès la fin du cooldown: exige que le marché
@@ -46,8 +46,8 @@ ABNORMAL_MOVE_THRESHOLD = 3.0
 # Un ACCU gagne quand le prix fait des petits pas réguliers (même direction),
 # pas quand il oscille en va-et-vient (risque de casser la barrière).
 TREND_FILTER_ENABLED = True   # Activer le filtre de tendance avant chaque achat
-TREND_WINDOW = 10             # Nb de ticks analysés pour le momentum directionnel
-TREND_DIRECTIONALITY = 0.7    # Fraction de ticks dans une même direction requise (0.5-1.0)
+TREND_WINDOW = 20             # Nb de ticks analysés pour le momentum directionnel
+TREND_DIRECTIONALITY = 0.75    # Fraction de ticks dans une même direction requise (0.5-1.0)
 TREND_MAX_WAIT_TICKS = 0      # 0 = attendre indéfiniment; sinon fallback après X ticks sans signal
 
 # --- Confirmation de calme avant ré-entrée ---
@@ -57,7 +57,7 @@ TREND_MAX_WAIT_TICKS = 0      # 0 = attendre indéfiniment; sinon fallback aprè
 #      (garantit une fenêtre de volatilité 100% fraîche).
 #   2) CALM_CONFIRM_TICKS: nb de ticks CONSÉCUTIFS "calmes" requis — un tick trop
 #      brutal remet le compteur à zéro (on ne relance pas juste après un à-coup).
-REOBSERVE_TICKS = 25        # ticks frais à collecter après une clôture avant d'entrer
+REOBSERVE_TICKS = 30        # ticks frais à collecter après une clôture avant d'entrer
 CALM_CONFIRM_TICKS = 5      # ticks consécutifs "calmes" requis avant l'entrée
 CALM_MAX_TICK_MOVE = 0.0  # variat. max par tick jugée "calme" (0 = auto: barrière la plus large)
 
